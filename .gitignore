@@ -112,6 +112,7 @@ ENV/
 jobs/
 BioProtean PL024 files/
 examples/simulated_images
+examples/igfl/
 src/wf_merfish/test_postprocess.py
 src/wf_merfish/test_roundalignment.py
 src/wf_merfish/test_stitching.py
@@ -140,3 +141,4 @@ tests/data/
 tests/simulation_performance.json
 tests/merfish3d_analysis-simulation.zip
 .codex/
+CLAUDE.md

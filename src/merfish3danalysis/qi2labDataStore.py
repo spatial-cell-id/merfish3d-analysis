@@ -2584,22 +2584,16 @@ class qi2labDataStore:
                 readout_bit_path.mkdir()
                 readout_bit_attrs_path = self._entity_attributes_path(readout_bit_path)
                 fiducial_channel = str(self._channels_in_data[0])
-                readout_one_channel = str(self._channels_in_data[1])
-
-                if len(self._channels_in_data) == 3:
-                    readout_two_channel = str(self._channels_in_data[2])
-                    condition_one = self._experiment_order[readout_one_channel] == (
-                        bit_idx + 1
+                readout_channels = [
+                    str(ch) for ch in self._channels_in_data[1:]
+                ]
+                combined_condition = self._experiment_order[readout_channels[0]] == (
+                    bit_idx + 1
+                )
+                for readout_ch in readout_channels[1:]:
+                    combined_condition = combined_condition | (
+                        self._experiment_order[readout_ch] == (bit_idx + 1)
                     )
-                    condition_two = self._experiment_order[readout_two_channel] == (
-                        bit_idx + 1
-                    )
-                    combined_condition = condition_one | condition_two
-
-                else:
-                    combined_condition = self._experiment_order[
-                        readout_one_channel
-                    ] == (bit_idx + 1)
                 matching_rows = self._experiment_order.loc[combined_condition]
 
                 bit_attrs = {
