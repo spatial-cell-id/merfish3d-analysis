@@ -119,3 +119,4 @@ qi2lab-segment = "merfish3danalysis.cli.qi2lab_microscopes.segment_fiducial:main
 qi2lab-decode = "merfish3danalysis.cli.qi2lab_microscopes.pixeldecode:main"
 qi2lab-viewer = "merfish3danalysis.cli.qi2lab_microscopes.viewer:main"
 igfl-datastore = "merfish3danalysis.cli.igfl_microscopes.create_datastore:main"
+igfl-segment = "merfish3danalysis.cli.igfl_microscopes.segment_fiducial:main"
