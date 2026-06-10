@@ -237,24 +237,28 @@ def _apply_first_fiducial_on_gpu(dr, gpu_id: int = 0) -> bool:  # noqa: ANN001
     import cupy as cp
 
     cp.cuda.Device(gpu_id).use()
-    from merfish3danalysis.utils.rlgc import chunked_rlgc, clear_rlgc_caches
 
     raw0 = dr._datastore.load_local_corrected_image(
         tile=dr._tile_id, round=0, return_future=False
     )
 
-    ref_image_decon = _run_chunked_rlgc_remembering_crop(
-        dr=dr,
-        chunked_rlgc=chunked_rlgc,
-        image=raw0,
-        psf=_resolve_psf(dr._psfs, 0),
-        gpu_id=0,
-    )
+    if dr._decon_fiducial:
+        from merfish3danalysis.utils.rlgc import chunked_rlgc, clear_rlgc_caches
+
+        ref_image = _run_chunked_rlgc_remembering_crop(
+            dr=dr,
+            chunked_rlgc=chunked_rlgc,
+            image=raw0,
+            psf=_resolve_psf(dr._psfs, 0),
+            gpu_id=0,
+        )
+    else:
+        ref_image = raw0.copy()
 
     dr._datastore.save_local_registered_image(
-        ref_image_decon.clip(0, 2**16 - 1).astype(np.uint16),
+        ref_image.clip(0, 2**16 - 1).astype(np.uint16),
         tile=dr._tile_id,
-        deconvolution=True,
+        deconvolution=dr._decon_fiducial,
         round=dr._round_ids[0],
     )
     if dr._verbose >= 1:
@@ -263,9 +267,10 @@ def _apply_first_fiducial_on_gpu(dr, gpu_id: int = 0) -> bool:  # noqa: ANN001
             f"Finished fiducial tile id: {dr._tile_id}; round id: round001.",
         )
 
-    del raw0, ref_image_decon
+    del raw0, ref_image
     gc.collect()
-    clear_rlgc_caches(clear_memory_pool=False)
+    if dr._decon_fiducial:
+        clear_rlgc_caches(clear_memory_pool=False)
     cp.cuda.Stream.null.synchronize()
     cp.get_default_memory_pool().free_all_blocks()
     return True
