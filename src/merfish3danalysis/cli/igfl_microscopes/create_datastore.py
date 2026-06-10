@@ -77,8 +77,10 @@ def _parse_ome_pixels(tf: TiffFile) -> dict:
         )
 
     planes = pixels.findall("ome:Plane", _OME_NS)
-    stage_x_um = float(np.mean([float(p.get("PositionX")) * 1e6 for p in planes]))
-    stage_y_um = float(np.mean([float(p.get("PositionY")) * 1e6 for p in planes]))
+    stage_x_um = float(
+        np.mean([float(p.get("PositionX")) * 1e6 for p in planes]))
+    stage_y_um = float(
+        np.mean([float(p.get("PositionY")) * 1e6 for p in planes]))
     stage_z_um = float(planes[0].get("PositionZ")) * 1e6
 
     # Parse NA from the Folder[2] Description JSON (Abberior-specific)
@@ -89,7 +91,8 @@ def _parse_ome_pixels(tf: TiffFile) -> dict:
         if desc_el is not None and desc_el.text:
             try:
                 desc = json.loads(desc_el.text)
-                na_str = desc["objective_lens"]["name"].split("NA")[-1].split("(")[0]
+                na_str = desc["objective_lens"]["name"].split(
+                    "NA")[-1].split("(")[0]
                 na = float(na_str)
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass
@@ -252,6 +255,17 @@ def convert_data(
     z_start: int = typer.Option(
         0, help="First Z plane index for the crop window (used with --z_size_crop)"
     ),
+    deconv_scale: float = typer.Option(
+        200.0,
+        help=(
+            "Constant multiplier applied to deconv float values before the uint16 "
+            "cast. Huygens deconv output is float32 with a small range (most pixels "
+            "< 1.0); a direct uint16 cast truncates the fractional part and destroys "
+            "the signal. The same factor is applied to every tile/round/channel so "
+            "relative intensities are preserved across tiles (no per-tile "
+            "renormalization, which would cause fusion artifacts)."
+        ),
+    ),
 ) -> None:
     """Convert igfl Abberior confocal MERFISH data to qi2labdatastore.
 
@@ -279,6 +293,13 @@ def convert_data(
     z_start : int
         First Z-plane index of the crop window (used together with
         ``z_size_crop``).
+    deconv_scale : float
+        Constant multiplier applied to the deconv float image before the uint16
+        cast. Huygens deconv output is float32 with most values below 1.0;
+        casting directly to uint16 truncates the fractional part and destroys
+        the signal. The same factor is applied to every tile/round/channel so
+        relative intensities are preserved across tiles (no per-tile
+        renormalization).
 
     Returns
     -------
@@ -294,7 +315,8 @@ def convert_data(
     if not raw_dir.exists():
         raise FileNotFoundError(f"'Raw data' folder not found in {root_path}")
     if not deconv_dir.exists():
-        raise FileNotFoundError(f"'Deconv data' folder not found in {root_path}")
+        raise FileNotFoundError(
+            f"'Deconv data' folder not found in {root_path}")
 
     if codebook_path is None:
         codebook_path = root_path / "codebook.csv"
@@ -337,7 +359,8 @@ def convert_data(
     # -----------------------------------------------------------------------
     # Extract metadata from sample raw tile (round 0, tile 0)
     # -----------------------------------------------------------------------
-    sample_raw_path = _find_raw_tile(raw_dir, root_name, round_idx=0, tile_idx=0)
+    sample_raw_path = _find_raw_tile(
+        raw_dir, root_name, round_idx=0, tile_idx=0)
     sample_tf = TiffFile(str(sample_raw_path))
     if not sample_tf.is_ome:
         raise ValueError(f"{sample_raw_path} is not an OME-TIFF.")
@@ -456,6 +479,7 @@ def convert_data(
         "ri_sample": ri_sample,
         "z_size_crop": z_size_crop,
         "z_start": z_start,
+        "deconv_scale": deconv_scale,
         "channels": [
             {
                 "dye_order_idx": i,
@@ -481,16 +505,32 @@ def convert_data(
     # -----------------------------------------------------------------------
     # Main loop: populate datastore tile by tile, round by round
     # -----------------------------------------------------------------------
+    saturation_warned = False
     for round_idx in tqdm(range(num_rounds), desc="rounds"):
         for tile_idx in tqdm(range(num_tiles), desc="tile", leave=False):
             if round_idx == 0:
                 datastore.initialize_tile(tile_idx)
 
             # Load deconv OME-TIFF (CZYX, float32 from Huygens)
-            deconv_path = _find_deconv_tile(deconv_dir, root_name, round_idx, tile_idx)
+            deconv_path = _find_deconv_tile(
+                deconv_dir, root_name, round_idx, tile_idx)
             decon_image: np.ndarray = imread(str(deconv_path))
             if z_size_crop is not None:
-                decon_image = decon_image[:, z_start : z_start + z_size_crop, ...]
+                decon_image = decon_image[:,
+                                          z_start: z_start + z_size_crop, ...]
+
+            # Huygens deconv output is float32 with most values below 1.0.
+            # Scale by a constant factor (same for every tile/round/channel) so
+            # the uint16 cast preserves sub-integer precision instead of
+            # truncating the signal away. Warn once if scaling saturates.
+            decon_image = decon_image.astype(np.float32) * deconv_scale
+            if not saturation_warned and decon_image.max() > 2**16 - 1:
+                typer.echo(
+                    f"Warning: scaled deconv max {decon_image.max():.1f} exceeds "
+                    f"{2**16 - 1}; bright pixels are clipped. Lower --deconv-scale "
+                    "to avoid saturation."
+                )
+                saturation_warned = True
             decon_image = decon_image.clip(0, 2**16 - 1).astype(np.uint16)
 
             # Stage position from raw OME-TIFF Plane elements
