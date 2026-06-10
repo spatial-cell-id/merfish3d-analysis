@@ -9,9 +9,11 @@ Shepherd 2024/08 - rework script to utilized qi2labdatastore object.
 """
 
 import gc
+import shutil
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import typer
 from joblib import Parallel, delayed
@@ -22,6 +24,17 @@ from merfish3danalysis.qi2labDataStore import qi2labDataStore
 
 app = typer.Typer()
 app.pretty_exceptions_enable = False
+
+
+def _save_zdepth_png(fiducial_3d: np.ndarray, out_path: Path) -> None:
+    """Save a turbo-colormap z-depth image for QC.
+
+    Each pixel is colored by the Z-index of its maximum intensity value,
+    giving a quick visual of which depth the signal comes from.
+    """
+    zdepth = np.argmax(fiducial_3d, axis=0).astype(np.float32)
+    zdepth /= max(float(zdepth.max()), 1.0)
+    plt.imsave(str(out_path), zdepth, cmap="turbo")
 
 
 def batch_using_joblib(
@@ -218,6 +231,11 @@ def global_register_data(
     del fused_sim
     gc.collect()
 
+    # fused.ome.zarr is scratch space required by multiview_stitcher; the data
+    # has been copied into the datastore above so the temporary file can be removed.
+    if output_zarr_path.exists():
+        shutil.rmtree(output_zarr_path)
+
     # update datastore state
     datastore_state = datastore.datastore_state
     datastore_state.update({"GlobalRegistered": True})
@@ -231,21 +249,15 @@ def global_register_data(
             return_future=False
         )
 
-        # create max projection
-        fiducial_max_projection = np.max(np.squeeze(fiducial_fused), axis=0)
+        # create max projection and z-depth QC outputs
+        fuse_path = datastore._fused_root_path
+        fiducial_squeezed = np.squeeze(fiducial_fused)
         del fiducial_fused
+        fiducial_max_projection = np.max(fiducial_squeezed, axis=0)
+        _save_zdepth_png(fiducial_squeezed, fuse_path / "fiducial_zdepth.png")
+        del fiducial_squeezed
 
-        filename = "fiducial_max_projection.ome.tiff"
-        cellpose_path = (
-            datastore._datastore_path / Path("segmentation") / Path("cellpose")
-        )
-        cellpose_path.mkdir(exist_ok=True)
-        filename_path = (
-            datastore._datastore_path
-            / Path("segmentation")
-            / Path("cellpose")
-            / Path(filename)
-        )
+        filename_path = fuse_path / "fiducial_max_projection.ome.tiff"
         with TiffWriter(filename_path, bigtiff=True) as tif:
             metadata = {
                 "axes": "YX",

@@ -141,5 +141,7 @@ tests/pyinstrumtent_preprocess/
 tests/data/
 tests/simulation_performance.json
 tests/merfish3d_analysis-simulation.zip
+tests/test_simulation_example_pipeline.py
 .codex/
 CLAUDE.md
+
