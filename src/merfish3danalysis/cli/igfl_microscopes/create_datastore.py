@@ -12,7 +12,6 @@ import warnings
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -44,7 +43,21 @@ CODEBOOK_TO_OME_NAME: dict[str, str] = {
 
 
 def _parse_ome_pixels(tf: TiffFile) -> dict:
-    """Return a dict of pixel metadata parsed from an OME-TIFF."""
+    """Parse pixel metadata from an OME-TIFF file.
+
+    Parameters
+    ----------
+    tf : TiffFile
+        Open TiffFile object for an OME-TIFF. Must have valid OME metadata.
+
+    Returns
+    -------
+    dict
+        Keys: ``yx_pixel_um``, ``z_step_um``, ``size_z``, ``size_c``,
+        ``channels`` (list of dicts with ``name``, ``ex_um``, ``em_um``),
+        ``stage_pos_zyx_um`` (float32 ndarray), ``na`` (float or None),
+        ``tile_overlap`` (float or None).
+    """
     root = ET.fromstring(tf.ome_metadata)
     pixels = root.find("ome:Image/ome:Pixels", _OME_NS)
 
@@ -64,10 +77,8 @@ def _parse_ome_pixels(tf: TiffFile) -> dict:
         )
 
     planes = pixels.findall("ome:Plane", _OME_NS)
-    stage_x_um = float(
-        np.mean([float(p.get("PositionX")) * 1e6 for p in planes]))
-    stage_y_um = float(
-        np.mean([float(p.get("PositionY")) * 1e6 for p in planes]))
+    stage_x_um = float(np.mean([float(p.get("PositionX")) * 1e6 for p in planes]))
+    stage_y_um = float(np.mean([float(p.get("PositionY")) * 1e6 for p in planes]))
     stage_z_um = float(planes[0].get("PositionZ")) * 1e6
 
     # Parse NA from the Folder[2] Description JSON (Abberior-specific)
@@ -78,8 +89,7 @@ def _parse_ome_pixels(tf: TiffFile) -> dict:
         if desc_el is not None and desc_el.text:
             try:
                 desc = json.loads(desc_el.text)
-                na_str = desc["objective_lens"]["name"].split(
-                    "NA")[-1].split("(")[0]
+                na_str = desc["objective_lens"]["name"].split("NA")[-1].split("(")[0]
                 na = float(na_str)
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass
@@ -108,20 +118,69 @@ def _parse_ome_pixels(tf: TiffFile) -> dict:
     }
 
 
-def _find_raw_tile(raw_dir: Path, root_name: str, round_idx: int, tile_idx: int) -> Path:
+def _find_raw_tile(
+    raw_dir: Path, root_name: str, round_idx: int, tile_idx: int
+) -> Path:
+    """Return the path to a raw OME-TIFF tile.
+
+    Parameters
+    ----------
+    raw_dir : Path
+        Root raw-data directory (``<dataset>/Raw data``).
+    root_name : str
+        Dataset stem (``root_path.stem``).
+    round_idx : int
+        Zero-based round index.
+    tile_idx : int
+        Zero-based tile index.
+
+    Returns
+    -------
+    Path
+        Path to the matching ``*.ome.tiff`` file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no matching tile is found.
+    """
     folder = raw_dir / f"{root_name} raw_data round_{round_idx + 1:03d}"
     candidates = list(folder.glob(f"*tile_{tile_idx + 1:03d}.ome.tiff"))
     if not candidates:
         raise FileNotFoundError(
-            f"No raw tile found in {folder} for tile {tile_idx + 1:03d}")
+            f"No raw tile found in {folder} for tile {tile_idx + 1:03d}"
+        )
     return candidates[0]
 
 
 def _find_deconv_tile(
     deconv_dir: Path, root_name: str, round_idx: int, tile_idx: int
 ) -> Path:
+    """Return the path to a Huygens-deconvolved OME-TIFF tile.
+
+    Parameters
+    ----------
+    deconv_dir : Path
+        Root deconvolved-data directory (``<dataset>/Deconv data``).
+    root_name : str
+        Dataset stem (``root_path.stem``).
+    round_idx : int
+        Zero-based round index.
+    tile_idx : int
+        Zero-based tile index.
+
+    Returns
+    -------
+    Path
+        Path to the matching ``*.ome.tiff`` file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no matching tile is found.
+    """
     folder = deconv_dir / f"{root_name} deconv_data round_{round_idx + 1:03d}"
-    candidates = list(folder.glob(f"*tile_{tile_idx + 1:03d}_batch.ome.tiff"))
+    candidates = list(folder.glob(f"*tile_{tile_idx + 1:03d}.ome.tiff"))
     if not candidates:
         raise FileNotFoundError(
             f"No deconv tile found in {folder} for tile {tile_idx + 1:03d}"
@@ -129,11 +188,28 @@ def _find_deconv_tile(
     return candidates[0]
 
 
-def _parse_codebook(codebook_path: Path) -> tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
-    """Parse igfl semicolon-delimited codebook.
+def _parse_codebook(
+    codebook_path: Path,
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
+    """Parse an igfl semicolon-delimited codebook CSV.
 
-    Returns (bit_row, round_row, chan_row, codebook_df) where codebook_df has
-    columns [gene_id, bit01, bit02, ...].
+    Parameters
+    ----------
+    codebook_path : Path
+        Path to the codebook CSV file. Row 0 = bit numbers, row 1 = round
+        numbers, row 2 = dye/channel names, row 3 = (ignored header), rows
+        4+ = gene entries.
+
+    Returns
+    -------
+    bit_row : pd.Series
+        Bit number for each imaging channel column.
+    round_row : pd.Series
+        Round number for each imaging channel column.
+    chan_row : pd.Series
+        Dye name for each imaging channel column.
+    codebook_df : pd.DataFrame
+        Gene-by-bit DataFrame with columns ``[gene_id, bit01, bit02, ...]``.
     """
     raw = pd.read_csv(codebook_path, header=None, index_col=0, sep=";")
     bit_row = raw.iloc[0].astype(int)
@@ -154,37 +230,76 @@ def _parse_codebook(codebook_path: Path) -> tuple[pd.Series, pd.Series, pd.Serie
 
 @app.command()
 def convert_data(
-    root_path: Path = typer.Argument(...,
-                                     help="Root directory of the igfl dataset"),
-    codebook_path: Optional[Path] = typer.Option(
+    root_path: Path = typer.Argument(..., help="Root directory of the igfl dataset"),  # noqa: B008
+    codebook_path: Path | None = typer.Option(  # noqa: B008
         None, help="Path to codebook.csv. Defaults to <root_path>/codebook.csv"
     ),
-    output_path: Optional[Path] = typer.Option(
-        None, help="Output path for the qi2labdatastore. Defaults to <root_path>/qi2labdatastore"
+    output_path: Path | None = typer.Option(  # noqa: B008
+        None,
+        help="Output path for the qi2labdatastore. Defaults to <root_path>/qi2labdatastore",
     ),
-    na: Optional[float] = typer.Option(
+    na: float | None = typer.Option(
         None, help="Objective NA. Auto-parsed from OME metadata if not provided."
     ),
     ri: float = typer.Option(
-        1.4, help="Refractive index of immersion medium (silicon oil)"),
+        1.4, help="Refractive index of immersion medium (silicon oil)"
+    ),
     ri_sample: float = typer.Option(1.33, help="Refractive index of sample"),
-    z_size_crop: Optional[int] = typer.Option(
-        None, help="Crop Z dimension to this many slices (reduces memory; use ~20 for testing)"
+    z_size_crop: int | None = typer.Option(
+        None,
+        help="Crop Z dimension to this many slices (reduces memory; use ~20 for testing)",
+    ),
+    z_start: int = typer.Option(
+        0, help="First Z plane index for the crop window (used with --z_size_crop)"
     ),
 ) -> None:
-    """Convert igfl Abberior confocal MERFISH data to qi2labdatastore."""
-    assert root_path.exists(), f"{root_path} not found."
+    """Convert igfl Abberior confocal MERFISH data to qi2labdatastore.
+
+    Parameters
+    ----------
+    root_path : Path
+        Root directory of the igfl dataset. Must contain ``Raw data/`` and
+        ``Deconv data/`` subdirectories.
+    codebook_path : Path or None
+        Path to the semicolon-delimited codebook CSV. Defaults to
+        ``<root_path>/codebook.csv``.
+    output_path : Path or None
+        Destination for the qi2labDataStore zarr. Defaults to
+        ``<root_path>/qi2labdatastore``.
+    na : float or None
+        Objective numerical aperture. Auto-parsed from OME metadata when
+        ``None``; falls back to 1.3 if metadata is absent.
+    ri : float
+        Refractive index of the immersion medium (silicon oil default: 1.4).
+    ri_sample : float
+        Refractive index of the sample (default: 1.33).
+    z_size_crop : int or None
+        Crop the Z stack to this many planes. Useful for memory-limited test
+        runs (e.g. ``20``). ``None`` keeps all planes.
+    z_start : int
+        First Z-plane index of the crop window (used together with
+        ``z_size_crop``).
+
+    Returns
+    -------
+    None
+        Writes the datastore to disk and exits.
+    """
+    if not root_path.exists():
+        raise FileNotFoundError(f"{root_path} not found.")
 
     root_name = root_path.stem
     raw_dir = root_path / "Raw data"
     deconv_dir = root_path / "Deconv data"
-    assert raw_dir.exists(), f"'Raw data' folder not found in {root_path}"
-    assert deconv_dir.exists(
-    ), f"'Deconv data' folder not found in {root_path}"
+    if not raw_dir.exists():
+        raise FileNotFoundError(f"'Raw data' folder not found in {root_path}")
+    if not deconv_dir.exists():
+        raise FileNotFoundError(f"'Deconv data' folder not found in {root_path}")
 
     if codebook_path is None:
         codebook_path = root_path / "codebook.csv"
-    assert codebook_path.exists(), f"Codebook not found: {codebook_path}"
+    if not codebook_path.exists():
+        raise FileNotFoundError(f"Codebook not found: {codebook_path}")
 
     # -----------------------------------------------------------------------
     # Parse codebook
@@ -192,28 +307,29 @@ def convert_data(
     bit_row, round_row, chan_row, codebook_df = _parse_codebook(codebook_path)
 
     rounds_to_bits: dict[int, list[int]] = defaultdict(list)
-    for bit, rnd in zip(bit_row, round_row):
+    for bit, rnd in zip(bit_row, round_row, strict=False):
         rounds_to_bits[int(rnd)].append(int(bit))
 
     num_rounds = max(rounds_to_bits.keys())
 
     # unique dyes, codebook order preserved
     readout_dyes = list(dict.fromkeys(chan_row))
-    dye_order = ["DAPI"] + readout_dyes
+    dye_order = ["DAPI", *readout_dyes]
 
     # Build experiment_order as DataFrame with columns = dye_order.
     # Datastore expects: col 0 (DAPI) = round number, remaining cols = bit number
     # imaged by that dye in that round (matched by round+dye lookup in codebook).
     bit_to_round_dye = {
         int(bit): (int(rnd), str(dye))
-        for bit, rnd, dye in zip(bit_row, round_row, chan_row)
+        for bit, rnd, dye in zip(bit_row, round_row, chan_row, strict=False)
     }
     exp_rows = []
     for rnd in range(1, num_rounds + 1):
         row = [rnd]
         for dye in readout_dyes:
-            match = [b for b, (r, d) in bit_to_round_dye.items()
-                     if r == rnd and d == dye]
+            match = [
+                b for b, (r, d) in bit_to_round_dye.items() if r == rnd and d == dye
+            ]
             row.append(match[0] if match else 0)
         exp_rows.append(row)
     experiment_order = np.array(exp_rows, dtype=int)
@@ -221,24 +337,27 @@ def convert_data(
     # -----------------------------------------------------------------------
     # Extract metadata from sample raw tile (round 0, tile 0)
     # -----------------------------------------------------------------------
-    sample_raw_path = _find_raw_tile(
-        raw_dir, root_name, round_idx=0, tile_idx=0)
+    sample_raw_path = _find_raw_tile(raw_dir, root_name, round_idx=0, tile_idx=0)
     sample_tf = TiffFile(str(sample_raw_path))
-    assert sample_tf.is_ome, f"{sample_raw_path} is not an OME-TIFF."
+    if not sample_tf.is_ome:
+        raise ValueError(f"{sample_raw_path} is not an OME-TIFF.")
     meta = _parse_ome_pixels(sample_tf)
     sample_tf.close()
 
     yx_pixel_um: float = meta["yx_pixel_um"]
     z_step_um: float = meta["z_step_um"]
     channels_from_ome: list[dict] = meta["channels"]
-    tile_overlap_frac: float = meta["tile_overlap"] if meta["tile_overlap"] is not None else 0.08
+    tile_overlap_frac: float = (
+        meta["tile_overlap"] if meta["tile_overlap"] is not None else 0.08
+    )
 
     if na is None:
         if meta["na"] is not None:
             na = meta["na"]
         else:
             typer.echo(
-                "Warning: could not parse NA from OME metadata; defaulting to 1.3")
+                "Warning: could not parse NA from OME metadata; defaulting to 1.3"
+            )
             na = 1.3
 
     # -----------------------------------------------------------------------
@@ -295,11 +414,9 @@ def convert_data(
     # -----------------------------------------------------------------------
     # Initialize datastore
     # -----------------------------------------------------------------------
-    if output_path is None:
-        datastore_path = root_path / "qi2labdatastore"
-    else:
-        datastore_path = output_path
-
+    datastore_path = (
+        output_path if output_path is not None else root_path / "qi2labdatastore"
+    )
     datastore = qi2labDataStore(datastore_path)
 
     voxel_size_zyx_um = [z_step_um, yx_pixel_um, yx_pixel_um]
@@ -338,6 +455,7 @@ def convert_data(
         "ri": ri,
         "ri_sample": ri_sample,
         "z_size_crop": z_size_crop,
+        "z_start": z_start,
         "channels": [
             {
                 "dye_order_idx": i,
@@ -369,11 +487,10 @@ def convert_data(
                 datastore.initialize_tile(tile_idx)
 
             # Load deconv OME-TIFF (CZYX, float32 from Huygens)
-            deconv_path = _find_deconv_tile(
-                deconv_dir, root_name, round_idx, tile_idx)
+            deconv_path = _find_deconv_tile(deconv_dir, root_name, round_idx, tile_idx)
             decon_image: np.ndarray = imread(str(deconv_path))
             if z_size_crop is not None:
-                decon_image = decon_image[:, :z_size_crop, ...]
+                decon_image = decon_image[:, z_start : z_start + z_size_crop, ...]
             decon_image = decon_image.clip(0, 2**16 - 1).astype(np.uint16)
 
             # Stage position from raw OME-TIFF Plane elements
@@ -443,6 +560,13 @@ def convert_data(
 
 
 def main() -> None:
+    """Entry point for the igfl datastore conversion CLI.
+
+    Returns
+    -------
+    None
+        Delegates to the Typer app.
+    """
     app()
 
 

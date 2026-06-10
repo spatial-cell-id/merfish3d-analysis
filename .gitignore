@@ -134,6 +134,7 @@ test_round_alignment.py
 output.mp4
 3.0.8
 src/merfish3danalysis/utils/rlgc_diag.py
+src/merfish3danalysis/pptx/
 
 # Simulation test data and generated benchmarking artifacts
 tests/pyinstrumtent_preprocess/
