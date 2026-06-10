@@ -1434,15 +1434,22 @@ class qi2labDataStore:
         else:
             data = {}
 
+        # Custom metadata must live under "attributes" to keep zarr.json
+        # spec-compliant (zarr v3 rejects unknown top-level keys when parsing
+        # GroupMetadata, which breaks napari and every other standard reader).
+        attributes = data.get("attributes")
+        if not isinstance(attributes, dict):
+            attributes = {}
         if merge:
-            merged = {}
-            current = data.get("extra_attributes")
-            if isinstance(current, dict):
-                merged.update(current)
-            merged.update(dict(extra_attributes))
-            data["extra_attributes"] = merged
+            attributes.update(dict(extra_attributes))
         else:
-            data["extra_attributes"] = dict(extra_attributes)
+            ome = attributes.get("ome")
+            attributes = dict(extra_attributes)
+            if ome is not None:
+                attributes["ome"] = ome
+        data["attributes"] = attributes
+        # Drop any legacy non-compliant top-level copy.
+        data.pop("extra_attributes", None)
 
         qi2labDataStore._save_to_json(data, zarr_json_path)
 
@@ -1465,10 +1472,17 @@ class qi2labDataStore:
         image_root = qi2labDataStore._image_store_path(image_path)
         zarr_json_path = image_root / Path("zarr.json")
         data = qi2labDataStore._load_from_json(zarr_json_path)
-        maybe_attrs = data.get("extra_attributes")
-        if isinstance(maybe_attrs, dict):
-            return maybe_attrs
-        return {}
+        result: dict[str, Any] = {}
+        # Primary location: under "attributes" (excluding the OME multiscale
+        # block, which is structural metadata rather than user attributes).
+        attributes = data.get("attributes")
+        if isinstance(attributes, dict):
+            result.update({k: v for k, v in attributes.items() if k != "ome"})
+        # Legacy stores wrote a non-compliant top-level "extra_attributes" key.
+        legacy = data.get("extra_attributes")
+        if isinstance(legacy, dict):
+            result.update(legacy)
+        return result
 
     @staticmethod
     def _to_json_compatible(value: Any) -> Any:
