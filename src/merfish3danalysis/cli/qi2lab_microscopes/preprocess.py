@@ -25,7 +25,7 @@ def local_register_data(
     decon: bool = True,
     opticalflow: bool = True,
     decon_allfiducial: bool = True,
-    save_all_fiducial: bool = False,
+    save_all_fiducial: bool = True,
     overwrite: bool = True,
     crop_yx_decon: int = 2048,
     ufish_model: str | None = None,
@@ -70,7 +70,8 @@ def local_register_data(
     if zstride_level == 0:
         datastore_path = root_path / Path(r"qi2labdatastore")
     else:
-        datastore_path = root_path / Path(f"qi2labdatastore_zstride0{zstride_level}")
+        datastore_path = root_path / \
+            Path(f"qi2labdatastore_zstride0{zstride_level}")
     datastore = qi2labDataStore(datastore_path)
     print(f"Using datastore at {datastore_path}")
 
