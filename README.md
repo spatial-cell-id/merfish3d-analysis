@@ -10,6 +10,14 @@ GPU accelerated post-processing for 2D / 3D iterative barcoded FISH data. This p
 ## Try it without installation
 You can try out the package in the cloud on simulated data using a [Google Colab notebook](https://colab.research.google.com/github/QI2lab/merfish3d-analysis/blob/main/examples/notebooks/Simulation_example.ipynb) that demonstrates data preprocessing and decoding.
 
+## Run the full pipeline on real confocal data (beginner-friendly)
+Once the package is installed (see [Installation](#installation)), the
+[`examples/notebooks/IGFL_confocal_example.ipynb`](examples/notebooks/IGFL_confocal_example.ipynb)
+notebook walks you through the entire igfl confocal pipeline — datastore, preprocessing,
+global registration, segmentation, and decoding — one step at a time, with no command-line
+syntax to memorize. You only edit a single data path. See the
+[Quick start for non-coders](#quick-start-for-non-coders) below for how to launch it.
+
 ## Installation
 
 Create a python 3.12 environment using your favorite package manager, e.g.
@@ -41,11 +49,39 @@ pip install -e .
 Finally, install the `merfish3d-analysis` package using the command 
 ```
 setup-merfish3d
-```` 
+```
 
 This will automatically setup the correct CUDA libraries and other packages in the conda environment. **Note**: Due to package incompatibility, the install script currently creates a second conda/mamba environment called `merfish3d-stitcher`. In this environment, we install the minimal packages required to read the datastore used by `merfish3d-analysis` and [multiview-stitcher](https://github.com/multiview-stitcher/multiview-stitcher). The reason for this change is that one of the `multiview-stitcher` sub-dependencies (`xarray-dataclass`) now requires `numpy>2.0`, which is incompatible with the scientific computing packages used for `merfish3d-analysis`.
 
 The `merfish3d-stitcher` environment is only used when individual tiles are registered into a global coordinate system. The code automatically invokes this second environment, but it is important to note that the current install strategy does create a new conda/mamba environment beyond what you as the user creates. As soon as the dependency issue is solved, we will remove this work around.
+
+## Quick start for non-coders
+
+If you just want to run the pipeline on your own confocal data and have never used the
+terminal, follow these steps once. They assume someone has not already set up this machine —
+if the `merfish3d` environment already exists, skip to step 4.
+
+1. **Install the package.** Follow the [Installation](#installation) section above to create the
+   `merfish3d` environment and run `setup-merfish3d` (this also creates the `merfish3d-stitcher`
+   environment automatically).
+2. **Activate the environment:**
+   ```bash
+   conda activate merfish3d
+   ```
+3. **Install JupyterLab** (only needed the first time):
+   ```bash
+   pip install jupyterlab
+   ```
+4. **Launch JupyterLab** from the repository folder:
+   ```bash
+   jupyter lab
+   ```
+   This opens a browser. In the file browser on the left, open
+   `examples/notebooks/IGFL_confocal_example.ipynb`.
+5. **Run the notebook.** Edit the single `ROOT_PATH` line to point at your dataset folder
+   (the one containing `Raw data/`, `Deconv data/`, and `codebook.csv`), then run the cells
+   from top to bottom. The notebook explains each step, switches conda environments for you
+   where needed, and skips any step that has already completed so it is safe to re-run.
 
 ## View a qi2lab datastore
 
