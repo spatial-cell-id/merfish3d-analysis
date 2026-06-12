@@ -112,7 +112,7 @@ ENV/
 jobs/
 BioProtean PL024 files/
 examples/simulated_images
-examples/igfl/
+
 src/wf_merfish/test_postprocess.py
 src/wf_merfish/test_roundalignment.py
 src/wf_merfish/test_stitching.py
@@ -134,7 +134,7 @@ test_round_alignment.py
 output.mp4
 3.0.8
 src/merfish3danalysis/utils/rlgc_diag.py
-src/merfish3danalysis/pptx/
+
 
 # Simulation test data and generated benchmarking artifacts
 tests/pyinstrumtent_preprocess/
@@ -143,5 +143,5 @@ tests/simulation_performance.json
 tests/merfish3d_analysis-simulation.zip
 tests/test_simulation_example_pipeline.py
 .codex/
-CLAUDE.md
 
+*.pptx
