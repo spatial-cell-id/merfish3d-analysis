@@ -13,7 +13,6 @@ import shutil
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import typer
 from joblib import Parallel, delayed
@@ -32,6 +31,8 @@ def _save_zdepth_png(fiducial_3d: np.ndarray, out_path: Path) -> None:
     Each pixel is colored by the Z-index of its maximum intensity value,
     giving a quick visual of which depth the signal comes from.
     """
+    import matplotlib.pyplot as plt
+
     zdepth = np.argmax(fiducial_3d, axis=0).astype(np.float32)
     zdepth /= max(float(zdepth.max()), 1.0)
     plt.imsave(str(out_path), zdepth, cmap="turbo")
@@ -85,6 +86,15 @@ def global_register_data(
     zstride_level: int, default = 0
         look for a skip z dataset.
     """
+
+    import os
+
+    # The CLI may be launched from a Jupyter environment where MPLBACKEND is
+    # set to the inline backend, which is invalid outside a notebook. matplotlib
+    # validates this at import time, so any matplotlib import (including ones
+    # inside multiview_stitcher below) would crash. Force a headless backend.
+    os.environ.pop("MPLBACKEND", None)
+    os.environ["MPLBACKEND"] = "Agg"
 
     import dask.array as da
     import dask.diagnostics
