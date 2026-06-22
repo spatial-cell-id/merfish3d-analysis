@@ -55,8 +55,8 @@ LINUX_CONDA_CUDA_PKGS = [
     "cutensor",
     "nccl",
     "pyopengl",
-    "'numpy=1.26.4'",
-    "'scipy=1.12.0'",
+    "'numpy>=2.0,<2.3'",
+    "scipy",
     "shapely",
     "rtree",
     "numba",
@@ -64,6 +64,14 @@ LINUX_CONDA_CUDA_PKGS = [
     "'pandas=2.3.3'",
     "fastparquet",
     "tbb",
+]
+
+# Cap numpy to the window required by the GPU/scientific stack:
+#   basicpy & scikit-image(np2) need numpy>=2; numba 0.61.2 needs numpy<2.3.
+# Re-asserted to pip so transitive deps can't push numpy past 2.2.x.
+PIP_CONSTRAINTS = [
+    "numpy>=2.0,<2.3",
+    "pandas==2.3.3",
 ]
 
 # Optional: jax local CUDA in CURRENT env
@@ -230,8 +238,15 @@ export CCCL_IGNORE_DEPRECATED_CPP_DIALECT="1"
     sh_cuda.chmod(sh_cuda.stat().st_mode | stat.S_IEXEC)
 
     # 3) (Optional) Prep CURRENT env
+    # Re-assert the numpy/pandas pins to pip via a constraints file so transitive
+    # deps (e.g. basicpy requiring numpy>=2) can't push numpy outside the window
+    # numba 0.61.2 supports (<2.3).
+    constraints_path = Path(prefix) / "merfish3d_pip_constraints.txt"
+    constraints_path.write_text("\n".join(PIP_CONSTRAINTS) + "\n", encoding="utf-8")
+    constraints = shlex.quote(str(constraints_path))
+
     run(
-        "python -m pip install --upgrade-strategy only-if-needed torch torchvision cuda-bindings==12.8.* --index-url https://download.pytorch.org/whl/cu128"
+        f"python -m pip install -c {constraints} --upgrade-strategy only-if-needed torch torchvision cuda-bindings==12.8.* --index-url https://download.pytorch.org/whl/cu128"
     )
     if headless:
         pip_deps = [
@@ -241,8 +256,14 @@ export CCCL_IGNORE_DEPRECATED_CPP_DIALECT="1"
         ]
     else:
         pip_deps = BASE_PIP_DEPS
-    run(f"python -m pip install {' '.join(shlex.quote(d) for d in pip_deps)}")
-    run(f"python -m pip install {' '.join(shlex.quote(d) for d in LINUX_JAX_LIB)}")
+    run(
+        f"python -m pip install -c {constraints} --upgrade-strategy only-if-needed "
+        + " ".join(shlex.quote(d) for d in pip_deps)
+    )
+    run(
+        f"python -m pip install -c {constraints} --upgrade-strategy only-if-needed "
+        + " ".join(shlex.quote(d) for d in LINUX_JAX_LIB)
+    )
 
     # 4) Create NEW env and install what you asked
     run(
