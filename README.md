@@ -18,6 +18,12 @@ global registration, segmentation, and decoding — one step at a time, with no 
 syntax to memorize. You only edit a single data path. See the
 [Quick start for non-coders](#quick-start-for-non-coders) below for how to launch it.
 
+The IGFL pipeline is also exposed as CLI commands (`igfl-datastore`,
+`igfl-segment`). Unlike the qi2lab path, the IGFL ingest expects
+**Huygens-deconvolved OME-TIFF** stacks (the data is already deconvolved) and a
+**semicolon-delimited** codebook, and `igfl-segment` runs **3D** Cellpose
+segmentation on the full volume (the qi2lab path segments a 2D max projection).
+
 ## Installation
 
 Create a python 3.12 environment using your favorite package manager, e.g.
@@ -30,21 +36,18 @@ Activate the environment and install the GPU dependencies. This install method a
 conda activate merfish3d
 ```
 
-Next, clone the repository in your location of choice and enter the directory using
+Next, clone the repository in your location of choice, enter the directory, and
+switch to the `igfl-main` branch using
 ```
 git clone https://github.com/QI2lab/merfish3d-analysis
 cd merfish3d-analysis
+git checkout igfl-main
 ``` 
 
-and install using 
-```
-pip install .
-```
-
-For interactive editing use 
+and install in editable mode using 
 ```
 pip install -e .
-``` 
+```
 
 Finally, install the `merfish3d-analysis` package using the command 
 ```
@@ -103,12 +106,14 @@ qi2lab-viewer /path/to/experiment/qi2labdatastore
 ```
 
 The viewer only reads existing datastore contents. It can display selected tiles,
-round-1 fiducials, selected bits, feature predictor probability images, decoded
-codebook-word overlays, and cell-outline overlays when those components are
-already present. When the datastore contains fused global polyDT data, globally
-decoded features, cell outlines, and the global polyDT segmentation image, enable
-the global fused view to inspect the downsampled polyDT max projection with
-selected RNA identities on the global coordinate canvas.
+round-1 fiducials (fiducial inspection is currently locked to round 1), selected
+bits, feature predictor probability images, decoded codebook-word overlays, and
+cell-outline overlays when those components are already present. When the datastore
+contains fused global polyDT data, globally decoded features, cell outlines, and
+the global polyDT segmentation image, enable the global fused view to inspect the
+downsampled polyDT **2D max projection** (the global fused view is a max
+projection, not a full 3D volume) with selected RNA identities on the global
+coordinate canvas.
 
 The documentation includes a [viewer guide with screenshots](https://qi2lab.github.io/merfish3d-analysis/viewer/)
 and a [current API notes](https://qi2lab.github.io/merfish3d-analysis/api/) page

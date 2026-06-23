@@ -1,6 +1,6 @@
 # merfish3d-analysis — Technical Summary
 
-> Onboarding context for the INFRATECH project. This document describes the
+> This document describes the
 > `merfish3d-analysis` package: its scientific purpose, architecture, data
 > formats, processing pipeline, and external dependencies. Prioritizes technical
 > accuracy over brevity.
@@ -37,7 +37,7 @@ fluorescence imagery into an analysis-ready spatial gene-expression dataset.
 Preprint: *"GPU-accelerated, self-optimizing processing for 3D multiplexed
 iterative RNA-FISH experiments"* (bioRxiv 2025.10.10.681751v1).
 
-### Platform constraints (important for INFRATECH)
+### Platform constraints
 
 - **Linux only, NVIDIA GPU only.** Hard requirement, driven by the RAPIDS.AI
   (cuCIM, cuVS) and CuPy dependency stack.
@@ -60,10 +60,10 @@ merfish3d-analysis/
 ├── mkdocs.yml                 # docs site config
 ├── src/merfish3danalysis/
 │   ├── __init__.py            # lazy submodule import machinery
-│   ├── qi2labDataStore.py     # ~4360 lines — central data I/O hub
-│   ├── PixelDecoder.py        # ~3580 lines — GPU transcript decoding
-│   ├── DataRegistration.py    # ~1090 lines — cross-round registration + decon
-│   ├── viewer.py              # ~2070 lines — ndv/PyQt datastore viewer (CLI: qi2lab-viewer)
+│   ├── qi2labDataStore.py     # ~4730 lines — central data I/O hub
+│   ├── PixelDecoder.py        # ~3890 lines — GPU transcript decoding
+│   ├── DataRegistration.py    # ~1270 lines — cross-round registration + decon
+│   ├── viewer.py              # ~2070 lines — ndv/PyQt datastore viewer (qi2lab-viewer entry point is a thin wrapper under cli/qi2lab_microscopes/viewer.py)
 │   ├── setup_merfish3d.py     # post-install CUDA/env bootstrap (CLI: setup-merfish3d)
 │   ├── setup_colab.py         # Google Colab bootstrap
 │   ├── utils/
@@ -74,7 +74,7 @@ merfish3d-analysis/
 │   │   └── darkfield.py      # PSF generation, dehazing, dark-channel sectioning
 │   └── cli/
 │       ├── qi2lab_microscopes/   # real-data pipeline (qi2lab-* commands)
-│       ├── igfl_microscopes/     # IGFL Abberior-confocal ingest (igfl-datastore)
+│       ├── igfl_microscopes/     # IGFL Abberior-confocal ingest + 3D segment (igfl-datastore, igfl-segment)
 │       └── statphysbio_simulation/ # simulation validation (sim-* commands)
 ├── examples/                  # zhuang_lab, human_olfactory_bulb, Colab notebook
 ├── docs/                      # mkdocs source (workflow, datastore, reference)
@@ -150,7 +150,9 @@ Key behavior:
   model is selectable (`ufish_model`: aliases `simfish`/`smfish` (**default**),
   `merfish`, `seqfish`, `deepspot`, `exseq` — all backed by the bundled v1.0.1
   fine-tuned `.onnx` weights — or a local `.onnx`/`.pth` / HuggingFace weights
-  path).
+  path). Only those six aliases are bundled; any other model (e.g. the
+  `dnafish`/`rca`/`deepblink`/`suntag` entries in the README sweep table) must be
+  supplied as a local `.onnx`/`.pth`/HF path and is not shipped with the package.
 - Multi-GPU support: spawns one worker process per GPU
   (`_apply_fiducial_on_gpu`, `_apply_bits_on_gpu`).
 - Entry points: `register_all_tiles()`, `register_one_tile(tile_id)`,
@@ -176,11 +178,12 @@ package. Workflow inside the class:
      5 iterations). This is the "self-optimizing" aspect from the paper title.
 3. **Per-plane decoding** (`_decode_pixels`): loads bit images, applies a
    low-pass filter, scales/clips/normalizes pixel traces, computes cosine-style
-   distances to normalized codewords, and applies the **two-threshold MERFISH
-   caller plane-by-plane**.
+   distances to normalized codewords, applies the **two-threshold MERFISH
+   caller plane-by-plane**, and gates pixels by the `magnitude_threshold` range
+   (pixels outside `[min, max]` are rejected here, during decoding).
 4. **Feature extraction** (`_extract_barcodes`): groups contiguous same-barcode
-   pixels into transcript features; enforces `minimum_pixels_per_RNA` and a
-   `magnitude_threshold` range.
+   pixels into transcript features; enforces a `minimum_pixels` / `maximum_pixels`
+   range (defaults `3` / `500`).
 5. **False-positive filtering** (`optimize_filtering`): three selectable
    methods — `blank_fraction` (default, targets a gross misidentification rate
    using the fraction of decoded "blank"/control codewords); `blank_bit_enrichment`
@@ -215,6 +218,12 @@ can display per-tile images (corrected / registered / feature-predictor),
 decoded-spot overlays, Cellpose cell outlines, and the **global fused fiducial
 image after decoding**. `napari` remains installed (and is still used to
 determine camera/stage orientation), but the viewer itself is ndv-based.
+
+**Current implementation limits:** fiducial inspection is locked to **round 1**
+(`round_ids[0]`), and the global fused view renders a **2D max projection** of
+the fused volume, not the full 3D stack. Multi-round fiducial browsing, a
+full-3D fused view, and stitch-QC overlays are planned
+(`.scratch/qi2lab-viewer/PRD.md`) but not yet implemented.
 
 ### 3.5 `utils/` modules
 
@@ -298,9 +307,11 @@ qi2labdatastore/
   interface (the docs/datastore note this; the codebase also uses `zarr` and
   `numcodecs` directly in places).
 - Per-image metadata (correction flags, wavelengths, `bit_linker`,
-  `round_linker`, `psf_idx`, transforms) lives in
-  `zarr.json -> extra_attributes`; OME metadata stores only voxel `scale` and
-  tile `translation`.
+  `round_linker`, `psf_idx`, transforms) is written under the spec-compliant
+  `zarr.json -> attributes` key (zarr v3 rejects unknown top-level keys, which
+  broke napari and other standard readers; the read path stays
+  backward-compatible with legacy `extra_attributes` stores). OME metadata
+  stores only voxel `scale` and tile `translation`.
 - Non-image folders carry an `attributes.json`.
 
 ### 4.3 Outputs
@@ -381,6 +392,25 @@ Updated RNA→cell assignments + count matrices
    boundaries from transcript density and emit final count matrices (`.mtx.gz`),
    GeoJSON cell polygons, transcript-metadata CSV, and a `spatialdata` zarr.
 
+### IGFL Abberior-confocal pipeline (`igfl-*` commands)
+
+A second real-data CLI family ingests IGFL Abberior confocal data, which differs
+from the qi2lab path in two ways:
+
+- **`igfl-datastore`** (`cli/igfl_microscopes/create_datastore.py`): ingests
+  **Huygens-deconvolved OME-TIFF** stacks — the data is already deconvolved, so
+  RLGC deconvolution is left OFF in the downstream preprocess step — and parses a
+  **semicolon-delimited** codebook. It exposes `ri_sample` (sample refractive
+  index, default 1.33) and `deconv_scale` (rescales the float deconvolution
+  output into `uint16` without clipping signal).
+- **`igfl-segment`** (`cli/igfl_microscopes/segment_fiducial.py`): runs **full 3D
+  Cellpose** (`do_3D=True`) on the volume and saves masks at isotropic
+  `downsampling=[1, 1, 1]`. This contrasts with the qi2lab `qi2lab-segment` path,
+  which segments a **2D max projection** at `downsampling=[1, 3.5, 3.5]`.
+
+Other stages (preprocess / local registration, global register, decode) reuse the
+shared `DataRegistration` and `PixelDecoder` machinery.
+
 ### Simulation validation pipeline (`sim-*` commands)
 
 A parallel CLI family validates the whole pipeline against ground truth:
@@ -451,7 +481,7 @@ the dependency conflict is resolved.
 
 ---
 
-## 7. Code Conventions and Tooling (for contributing within INFRATECH)
+## 7. Code Conventions and Tooling
 
 - **Build**: `hatchling`; version string lives in
   `src/merfish3danalysis/__init__.py`.
@@ -490,8 +520,9 @@ the dependency conflict is resolved.
 | `qi2lab-globalregister` | `…/global_register` | Global stitch/fuse (multiview-stitcher) |
 | `qi2lab-segment` | `…/segment_fiducial` | Cellpose 2D segmentation |
 | `qi2lab-decode` | `…/pixeldecode` | Pixel decode + filter + cell assign |
-| `qi2lab-viewer` | `…/viewer` | Launch ndv/PyQt datastore viewer |
-| `igfl-datastore` | `cli/igfl_microscopes/create_datastore` | IGFL Abberior-confocal → datastore |
+| `qi2lab-viewer` | `cli/qi2lab_microscopes/viewer` | Launch ndv/PyQt datastore viewer (thin wrapper over `viewer.py`) |
+| `igfl-datastore` | `cli/igfl_microscopes/create_datastore` | IGFL Abberior-confocal → datastore (Huygens-deconvolved input) |
+| `igfl-segment` | `cli/igfl_microscopes/segment_fiducial` | IGFL 3D Cellpose segmentation |
 | `sim-convert` | `cli/statphysbio_simulation/convert_simulation_to_experiment` | Sim → fake acquisition |
 | `sim-datastore` | `…/convert_to_datastore` | Sim acquisition → datastore |
 | `sim-preprocess` | `…/register_and_deconvolve` | Sim registration/decon |
