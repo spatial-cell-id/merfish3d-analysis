@@ -18,7 +18,7 @@ BASE_PIP_DEPS = [
     "nvidia-cuda-runtime-cu12==12.8.*",
     "cuda-bindings==12.8.*",
     "onnx",
-    "onnxruntime-gpu",
+    "onnxruntime-gpu==1.22.0",  # CUDA 12 build; newer wheels link libcudart.so.13
     "napari[pyqt6]",
     "ndv[vispy,pyqt]",
     "qtpy",
