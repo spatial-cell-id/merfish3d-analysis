@@ -39,7 +39,7 @@ conda activate merfish3d
 Next, clone the repository in your location of choice, enter the directory, and
 switch to the `igfl-main` branch using
 ```
-git clone https://github.com/QI2lab/merfish3d-analysis
+git clone https://github.com/spatial-cell-id/merfish3d-analysis
 cd merfish3d-analysis
 git checkout igfl-main
 ``` 

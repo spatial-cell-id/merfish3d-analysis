@@ -1,7 +1,7 @@
 # merfish3d-analysis — Technical Summary
 
-> This document describes the
-> `merfish3d-analysis` package: its scientific purpose, architecture, data
+> This document describes the `merfish3d-analysis` package:
+> its scientific purpose, architecture, data
 > formats, processing pipeline, and external dependencies. Prioritizes technical
 > accuracy over brevity.
 
